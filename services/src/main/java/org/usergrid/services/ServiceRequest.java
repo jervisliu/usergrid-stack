@@ -290,7 +290,9 @@ public class ServiceRequest {
 	public String toString() {
 		StringBuilder sb = new StringBuilder();
 		if (serviceName != null) {
-			sb.append("/");
+      if ( !serviceName.startsWith("/")) {
+        sb.append("/");
+      }
 			sb.append(serviceName);
 		}
 		for (int i = 0; i < parameters.size(); i++) {
