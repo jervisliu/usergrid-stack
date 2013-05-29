@@ -87,11 +87,10 @@ public class UsersService extends AbstractCollectionService {
   		}
 
   		if (!context.moreParameters()) {
+        checkPermissionsForEntity(context, entity);
   			entity = em.get(entity);
   			entity = importEntity(context, (Entity) entity);
   		}
-
-  		checkPermissionsForEntity(context, entity);
 
   		List<ServiceRequest> nextRequests = context
   				.getNextServiceRequests(entity);

@@ -199,6 +199,8 @@ public class AbstractConnectionsService extends AbstractService {
 			entity = em.get(id);
 
 			entity = importEntity(context, (Entity) entity);
+
+      checkPermissionsForEntity(context, entity);
 		} else {
 			entity = em.getRef(id);
 		}
@@ -207,7 +209,6 @@ public class AbstractConnectionsService extends AbstractService {
 			throw new ServiceResourceNotFoundException(context);
 		}
 
-		checkPermissionsForEntity(context, entity);
 		
 	  // the context of the entity they're trying to load isn't owned by the owner
     // in the path, don't return it
@@ -317,11 +318,12 @@ public class AbstractConnectionsService extends AbstractService {
 	public ServiceResults postItemById(ServiceContext context, UUID id)
 			throws Exception {
 
-		checkPermissionsForEntity(context, id);
+
 
 		if (context.moreParameters()) {
 			return getItemById(context, id);
 		}
+    checkPermissionsForEntity(context, id);
 
 		Entity entity = em.get(id);
 		if (entity == null) {
@@ -345,7 +347,9 @@ public class AbstractConnectionsService extends AbstractService {
 	@Override
 	public ServiceResults postItemsByQuery(ServiceContext context, Query query)
 			throws Exception {
-
+    if ( context.moreParameters()){
+      return getItemsByQuery(context, query);
+    }
 		checkPermissionsForCollection(context);
     if (!query.hasQueryPredicates() && (query.getEntityType() != null)) {
 

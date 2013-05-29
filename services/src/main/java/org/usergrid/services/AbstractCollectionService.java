@@ -157,9 +157,10 @@ public class AbstractCollectionService extends AbstractService {
     if (!context.moreParameters()) {
       entity = em.get(entity);
       entity = importEntity(context, (Entity) entity);
+      checkPermissionsForEntity(context, entity);
     }
 
-    checkPermissionsForEntity(context, entity);
+
 
     /*
      * Results.Level level = Results.Level.REFS; if (isEmpty(parameters)) {
