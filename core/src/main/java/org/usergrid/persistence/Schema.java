@@ -925,6 +925,14 @@ public class Schema {
         return entity.getPropertiesIndexedInConnections();
     }
 
+    public Set<String> getUniqueProperties(String entityType) {
+      EntityInfo entity = getEntityInfo(entityType);
+      if (entity == null) {
+        return null;
+      }
+      return entity.getUniqueProperties();
+    }
+
     /**
      * @param entityType
      * @return value

@@ -96,7 +96,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 
 import me.prettyprint.cassandra.model.IndexedSlicesQuery;
 import me.prettyprint.cassandra.serializers.ByteBufferSerializer;
@@ -120,11 +120,9 @@ import me.prettyprint.hector.api.query.MultigetSliceCounterQuery;
 import me.prettyprint.hector.api.query.QueryResult;
 import me.prettyprint.hector.api.query.SliceCounterQuery;
 
-import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationContext;
-import org.springframework.util.Assert;
 import org.usergrid.locking.Lock;
 import org.usergrid.mq.Message;
 import org.usergrid.mq.QueueManager;
@@ -184,7 +182,9 @@ import javax.annotation.Resource;
  */
 public class EntityManagerImpl implements EntityManager {
 
-	/** The log4j logger. */
+  private static final boolean ASYNC_DELETE = false;
+
+  /** The log4j logger. */
 	private static final Logger logger = LoggerFactory
 			.getLogger(EntityManagerImpl.class);
     public static final String APPLICATION_COLLECTION = "application.collection.";
@@ -1676,7 +1676,9 @@ public class EntityManagerImpl implements EntityManager {
 	public Map<Object, Object> getDictionaryAsMap(EntityRef entity,
 			String dictionaryName) throws Exception {
 
-		entity = validate(entity);
+    if (!(entity instanceof Entity)) {
+		  entity = validate(entity);
+    }
 
 		Map<Object, Object> dictionary = new LinkedHashMap<Object, Object>();
 
@@ -1764,16 +1766,12 @@ public class EntityManagerImpl implements EntityManager {
   @Metered(group="core",name="EntityManager_deleteEntity")
 	public void deleteEntity(UUID entityId) throws Exception {
 
-		logger.info("deleteEntity {} of application {}", entityId,
-				applicationId);
+		logger.info("deleteEntity {} of application {}", entityId, applicationId);
 
-		EntityRef entity = getRef(entityId);
-		if (entity == null) {
-			return;
-		}
+		EntityRef entity = get(entityId);
+		if (entity == null) { return; }
 
-		logger.info("deleteEntity: {} is of type {}", entityId,
-				entity.getType());
+		logger.info("deleteEntity: {} is of type {}", entityId, entity.getType());
 
 		Keyspace ko = cass.getApplicationKeyspace(applicationId);
 		Mutator<ByteBuffer> m = createMutator(ko, be);
@@ -1781,66 +1779,44 @@ public class EntityManagerImpl implements EntityManager {
 		UUID timestampUuid = newTimeUUID();
 		long timestamp = getTimestampInMicros(timestampUuid);
 
-		// get all connections and disconnect them
-		getRelationManager(ref(entityId)).batchDisconnect(m, timestampUuid);
-
-		// delete all core properties and any dynamic property that's ever been
-		// dictionary for this entity
-		Set<String> properties = getPropertyNames(entity);
+    // remove unique properties so they can be reused
+    Set<String> properties = Schema.getDefaultSchema().getUniqueProperties(entity.getType());
 		if (properties != null) {
 			for (String propertyName : properties) {
-				m = batchSetProperty(m, entity, propertyName, null, true,
-						false, timestampUuid);
+				m = batchSetProperty(m, entity, propertyName, null, true, false, timestampUuid);
 			}
 		}
 
-		// delete any core dictionaries and dynamic dictionaries associated with
-		// this entity
-		Set<String> dictionaries = getDictionaryNames(entity);
-		if (dictionaries != null) {
-			for (String dictionary : dictionaries) {
-				Set<Object> values = getDictionaryAsSet(entity, dictionary);
-				if (values != null) {
-					for (Object value : values) {
-						batchUpdateDictionary(m, entity, dictionary, value,
-								true, timestampUuid);
-					}
-				}
-			}
-		}
-
-		// find all the containing collections
-		getRelationManager(entity).batchRemoveFromContainers(m, timestampUuid);
-
-		//decrease entity count
-		if(!TYPE_APPLICATION.equals(entity.getType())) {
+    // decrease entity counter
+		if (!TYPE_APPLICATION.equals(entity.getType())) {
 			String collection_name = Schema.defaultCollectionName(entity.getType());
 			decrementEntityCollection(collection_name);
 		}
 
-
 		timestamp += 1;
 
-		if (dictionaries != null) {
-			for (String dictionary : dictionaries) {
-
-			    ApplicationCF cf = getDefaultSchema().hasDictionary(entity.getType(),
-                        dictionary) ? ENTITY_DICTIONARIES
-                        : ENTITY_COMPOSITE_DICTIONARIES;
-
-			    addDeleteToMutator(m, cf, key(entity.getUuid(), dictionary), timestamp);
-			}
-		}
-
+    // delete entity UUID
 		addDeleteToMutator(m, ENTITY_PROPERTIES, key(entityId), timestamp);
 
 		deleteAliasesForEntity(m, entityId, timestamp);
 
+    // ensure role permissions are immediately removed
+    if (Role.ENTITY_TYPE.equals(entity.getType())) {
+      addDeleteToMutator(m, ENTITY_DICTIONARIES, key(entity.getUuid(), Schema.DICTIONARY_PERMISSIONS), timestamp);
+    }
 		batchExecute(m, CassandraService.RETRY_COUNT);
 
+    /* todo: this work should be done through the Scheduler, but doing so will cause
+       a circular dependency between the usergrid-core and usergrid-scheduler modules
+       - so that issue needs to be worked out first. */
+    // schedule remainder of delete to run
+    GarbageCollectorJob gcj = new GarbageCollectorJob(this, m, entity, timestampUuid);
+    ExecutorService es = Executors.newSingleThreadExecutor();
+    Future f = es.submit(gcj);
+    if (!ASYNC_DELETE) f.get();
 	}
 
-	@Override
+  @Override
 	public void delete(EntityRef entityRef) throws Exception {
 		deleteEntity(entityRef.getUuid());
 	}

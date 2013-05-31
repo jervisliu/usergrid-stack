@@ -45,6 +45,8 @@ public class EntityInfo {
 			String.CASE_INSENSITIVE_ORDER);
 	private final Set<String> fulltextIndexed = new TreeSet<String>(
 			String.CASE_INSENSITIVE_ORDER);
+  private final Set<String> unique = new TreeSet<String>(
+      String.CASE_INSENSITIVE_ORDER);
 
 	private boolean publicVisible = true;
 
@@ -106,7 +108,11 @@ public class EntityInfo {
 				fulltextIndexed.add(key);
 			}
 
-			if (property.isAliasProperty()) {
+      if (property.isUnique()) {
+        unique.add(key);
+      }
+
+      if (property.isAliasProperty()) {
 				aliasProperty = property.getName();
 			}
 		}
@@ -120,12 +126,12 @@ public class EntityInfo {
 		return property.isMutable();
 	}
 
+  public Set<String> getUniqueProperties() {
+    return unique;
+  }
+
 	public boolean isPropertyUnique(String propertyName) {
-		PropertyInfo property = properties.get(propertyName);
-		if (property == null) {
-			return false;
-		}
-		return property.isUnique();
+    return unique.contains(propertyName);
 	}
 
 	public boolean isPropertyTimestamp(String propertyName) {

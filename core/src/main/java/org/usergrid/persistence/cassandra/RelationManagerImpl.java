@@ -2550,27 +2550,25 @@ public class RelationManagerImpl implements RelationManager {
     public void removeFromCollection(String collectionName, EntityRef itemRef)
             throws Exception {
 
+        Entity itemEntity = em.get(itemRef);
+        if (itemEntity == null) { return; }
+
+        /*
+         * Delete entity if removing from application...
+         */
         if (headEntity.getUuid().equals(applicationId)) {
+            // special case for Roles...
             if (collectionName.equals(COLLECTION_ROLES)) {
-                Entity itemEntity = em.get(itemRef);
-                if (itemEntity != null) {
-                    RoleRef roleRef = SimpleRoleRef.forRoleEntity(itemEntity);
-                    em.deleteRole(roleRef.getApplicationRoleName());
-                    return;
-                }
-                em.delete(itemEntity);
-                return;
+                RoleRef roleRef = SimpleRoleRef.forRoleEntity(itemEntity);
+                em.deleteRole(roleRef.getApplicationRoleName());
             }
             em.delete(itemRef);
             return;
         }
 
-        Entity itemEntity = em.get(itemRef);
-
-        if (itemEntity == null) {
-            return;
-        }
-
+        /*
+         * Otherwise, just remove entity from any other collection...
+         */
         UUID timestampUuid = newTimeUUID();
         Mutator<ByteBuffer> batch = createMutator(
                 cass.getApplicationKeyspace(applicationId), be);
@@ -2587,6 +2585,7 @@ public class RelationManagerImpl implements RelationManager {
 
         batchExecute(batch, CassandraService.RETRY_COUNT);
 
+        // special case for Roles...
         if (headEntity.getType().equals(Group.ENTITY_TYPE)) {
             if (collectionName.equals(COLLECTION_ROLES)) {
                 String path = (String)((Entity)itemRef).getMetadata("path");
